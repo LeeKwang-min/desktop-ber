@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>베르</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+      #c { display: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script>
+      // 모듈 로딩 자체가 실패해도 터미널에서 알 수 있도록, 모듈보다 먼저 도는 일반 스크립트로 오류를 넘긴다
+      (function () {
+        var send = function (msg) { try { window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke('log', { msg: msg }); } catch (_) {} };
+        addEventListener('error', function (e) { send('early error: ' + (e.message || (e.target && e.target.src)) + ' @ ' + e.filename + ':' + e.lineno); }, true);
+        send('boot');
+      })();
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

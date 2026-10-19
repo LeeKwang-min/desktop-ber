@@ -1,0 +1,67 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - run: pnpm install --frozen-lockfile
+
+      - name: build (macOS universal)
+        if: runner.os == 'macOS'
+        run: |
+          pnpm tauri build --target universal-apple-darwin --bundles app
+          V="${GITHUB_REF_NAME#v}"
+          ditto -c -k --keepParent "src-tauri/target/universal-apple-darwin/release/bundle/macos/Ber.app" "Ber-$V-mac.zip"
+          shasum -a 256 "Ber-$V-mac.zip" | cut -d' ' -f1 > "Ber-$V-mac.zip.sha256"
+
+      - name: build (Windows x64)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pnpm tauri build --no-bundle
+          $v = "$env:GITHUB_REF_NAME".TrimStart('v')
+          Compress-Archive -Path src-tauri/target/release/ber.exe -DestinationPath "Ber-$v-windows-x64.zip"
+          (Get-FileHash "Ber-$v-windows-x64.zip" -Algorithm SHA256).Hash.ToLower() | Out-File -NoNewline -Encoding ascii "Ber-$v-windows-x64.zip.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ber-${{ runner.os }}
+          path: Ber-*.zip*
+          if-no-files-found: error
+
+  # 두 빌드가 모두 성공해야 릴리스를 만든다 (한쪽만 올라간 반쪽 릴리스 방지)
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            Ber-*.zip
+            Ber-*.zip.sha256

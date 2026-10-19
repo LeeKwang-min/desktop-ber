@@ -1,0 +1,290 @@
+<h2>체형 고정: 귀 × 명암 조합, 어느 쪽이 좋나요?</h2>
+<p class="subtitle">모두 1·3·4번의 기본 체형입니다. 윗줄은 기본 귀, 아랫줄은 큰 귀(속귀 포함)이고, 왼쪽부터 3단계 명암 / 5단계 명암 / 윤기 질감이에요.</p>
+
+<style>
+  .cat-ctrl { display:flex; flex-wrap:wrap; gap:.6rem 1.5rem; margin-bottom:1rem; align-items:center; }
+  .cat-ctrl .grp { display:flex; gap:.35rem; align-items:center; flex-wrap:wrap; }
+  .cat-ctrl .grp > span { font-size:.8rem; color:var(--text-secondary); margin-right:.25rem; }
+  .cat-ctrl button { font:inherit; font-size:.8rem; padding:.3rem .75rem; border-radius:999px; border:1px solid var(--border, #c8c8cc); background:var(--bg-secondary); color:var(--text-primary); cursor:pointer; }
+  .cat-ctrl button.on { background:var(--accent, #0071e3); border-color:var(--accent, #0071e3); color:#fff; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important; }
+  .card-image { aspect-ratio: 4/3 !important; padding:0 !important; }
+  .stage { width:100%; height:100%; position:relative; overflow:hidden; }
+  .stage canvas { width:100%; height:100%; display:block; }
+  .stage.bg-light { background: linear-gradient(135deg,#eef2f7,#cdd8e6); }
+  .stage.bg-dark  { background: linear-gradient(135deg,#232b38,#0b0f15); }
+  .stage.bg-color { background: linear-gradient(135deg,#f6a35c 0%,#d9577a 45%,#5b4bb7 100%); }
+  .card-body h3 .num { display:inline-block; min-width:1.4em; color:var(--accent, #0071e3); }
+</style>
+
+<div class="cat-ctrl">
+  <div class="grp"><span>바탕화면</span>
+    <button data-bg="light" class="on">밝게</button>
+    <button data-bg="dark">어둡게</button>
+    <button data-bg="color">컬러풀</button>
+  </div>
+  <div class="grp"><span>카메라</span>
+    <button data-cam="top">완전 탑뷰</button>
+    <button data-cam="tilt" class="on">살짝 기울임 (38°)</button>
+  </div>
+  <div class="grp"><span>움직임</span>
+    <button data-walk="1" class="on">걷기</button>
+    <button data-walk="0">멈춰서 보기</button>
+  </div>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+
+const FUR = 0x23252b, WHITE = 0xf4f3ee, PUPIL = 0x0c0c0e, NOSE = 0x1a1a1d, INNER = 0x6b5560;
+
+// A 스타일 기본값 + 변형별 차이만 덮어씀
+const BASE = {
+  a:.46, b:.21, c:.25, rump:1.12, legLen:.2, legR:.05, tailLen:.72, tailR:.042, tailLift:.22,
+  headR:.2, headScale:[1,.9,1.08], hx:.86, hy:.6, cheek:.55, pad:1,
+  ear:{ shape:'cone', h:.2, r:.095, tilt:.45 }, innerEar:false,
+  eye:{ r:.16, spread:.4, height:.1, iris:0xc5d63d },
+  shade:'toon', levels:[90,170,255], rim:.55, rimColor:[.62,.71,.85], whisker:2.0,
+};
+const BIG_EAR = { ear:{ shape:'cone', h:.26, r:.115, tilt:.38 }, innerEar:true };
+const SOFT = { levels:[60,105,150,200,255], rim:.35 };
+const GLOSS = { shade:'physical', rim:.35 };
+const VARIANTS = [
+  { id:'e1-toon3', name:'기본 귀 · 3단계 명암', desc:'= 지난번 1번. 또렷한 일러스트 느낌.', p:{} },
+  { id:'e1-soft',  name:'기본 귀 · 5단계 명암', desc:'= 지난번 4번. 더 매끈하고 차분한 느낌.', p:{ ...SOFT } },
+  { id:'e1-gloss', name:'기본 귀 · 윤기',       desc:'날씬한 체형에 반질반질한 털 질감. 가장 사실적.', p:{ ...GLOSS } },
+  { id:'e2-toon3', name:'큰 귀 · 3단계 명암',   desc:'= 지난번 3번. 크고 쫑긋한 귀 + 분홍빛 속귀.', p:{ ...BIG_EAR } },
+  { id:'e2-soft',  name:'큰 귀 · 5단계 명암',   desc:'큰 귀에 매끈한 명암.', p:{ ...BIG_EAR, ...SOFT } },
+  { id:'e2-gloss', name:'큰 귀 · 윤기',         desc:'큰 귀에 반질반질한 털 질감.', p:{ ...BIG_EAR, ...GLOSS } },
+];
+
+const cardsEl = document.getElementById('cards');
+for (const [i, v] of VARIANTS.entries()) {
+  cardsEl.insertAdjacentHTML('beforeend', `
+    <div class="card" data-choice="${v.id}" onclick="toggleSelect(this)">
+      <div class="card-image"><div class="stage bg-light" data-v="${i}"></div></div>
+      <div class="card-body"><h3><span class="num">${i+1}</span>${v.name}</h3><p>${v.desc}</p></div>
+    </div>`);
+}
+
+function gradient(levels) {
+  const t = new THREE.DataTexture(new Uint8Array(levels), levels.length, 1, THREE.RedFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter; t.needsUpdate = true; return t;
+}
+function addRim(mat, strength, [r, g, b]) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.rimStrength = { value: strength };
+    sh.fragmentShader = 'uniform float rimStrength;\n' + sh.fragmentShader.replace('#include <tonemapping_fragment>',
+      `float rimF = 1.0 - clamp(normalize(normal).z, 0.0, 1.0);
+       gl_FragColor.rgb += vec3(${r}, ${g}, ${b}) * pow(rimF, 3.0) * rimStrength;
+       #include <tonemapping_fragment>`);
+  };
+  return mat;
+}
+
+const SPHERE = new THREE.SphereGeometry(1, 32, 20);
+
+function loft(a, b, c, rump) {
+  const N = 32, M = 28, pos = [], idx = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, sp = Math.sqrt(Math.max(Math.sin(Math.PI * t), 0));
+    const w = c * sp * (rump + (.9 - rump)*t), h = b * sp * (1.0 - .06*t), yc = -b*.05*Math.sin(Math.PI*t);
+    for (let j = 0; j <= M; j++) {
+      const ph = j / M * Math.PI * 2;
+      pos.push(-a + 2*a*t, yc + Math.sin(ph)*h, Math.cos(ph)*w);
+    }
+  }
+  for (let i = 0; i < N; i++) for (let j = 0; j < M; j++) {
+    const k = i*(M+1) + j, k2 = k + M + 1;
+    idx.push(k, k2, k+1, k+1, k2, k2+1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+
+function makeMats(p) {
+  if (p.shade === 'physical') return {
+    fur: addRim(new THREE.MeshPhysicalMaterial({ color: 0x17181c, roughness:.38, sheen:.8, sheenRoughness:.35, sheenColor:0x8090a8, clearcoat:.25, clearcoatRoughness:.4 }), p.rim, p.rimColor),
+    white: new THREE.MeshPhysicalMaterial({ color: WHITE, roughness:.7, sheen:.5, sheenColor:0xffffff }),
+    inner: new THREE.MeshPhysicalMaterial({ color: INNER, roughness:.6 }),
+    nose: new THREE.MeshPhysicalMaterial({ color: NOSE, roughness:.3, clearcoat:.6 }),
+  };
+  const g = gradient(p.levels);
+  return {
+    fur: addRim(new THREE.MeshToonMaterial({ color: FUR, gradientMap: g }), p.rim, p.rimColor),
+    white: new THREE.MeshToonMaterial({ color: WHITE, gradientMap: g }),
+    inner: new THREE.MeshToonMaterial({ color: INNER, gradientMap: g }),
+    nose: new THREE.MeshToonMaterial({ color: NOSE, gradientMap: g }),
+  };
+}
+
+function buildCat(p) {
+  const M = { ...makeMats(p),
+    iris: new THREE.MeshBasicMaterial({ color: p.eye.iris }),
+    pupil: new THREE.MeshBasicMaterial({ color: PUPIL }),
+    shine: new THREE.MeshBasicMaterial({ color: 0xffffff }) };
+  const cat = { p, M, root: new THREE.Group(), body: new THREE.Group(), legs: [] };
+  const E = (parent, mat, pos, semi) => {
+    const m = new THREE.Mesh(SPHERE, mat); m.position.set(...pos); m.scale.set(...semi); parent.add(m); return m;
+  };
+  const C = (parent, mat, r, len, pos) => {
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(len, .001), 6, 12), mat); m.position.set(...pos); parent.add(m);
+  };
+
+  const { a, b, c, headR: hr } = p, B = cat.body;
+  const cy = p.legLen + b * .55;
+  cat.root.add(B);
+
+  const torso = new THREE.Mesh(loft(a*1.05, b, c, p.rump), M.fur); torso.position.set(-a*.05, cy, 0); B.add(torso);
+  E(B, M.white, [a*.84, cy - b*.12, 0], [a*.2, b*.5, c*.42]);   // 흰 턱받이
+
+  const head = new THREE.Group(); head.position.set(a*p.hx + hr*.3, cy + b*p.hy, 0); B.add(head); cat.head = head;
+  const [sx, sy, sz] = p.headScale;
+  E(head, M.fur, [0,0,0], [hr*sx, hr*sy, hr*sz]);
+  if (p.cheek) for (const z of [-1, 1]) E(head, M.fur, [hr*.12, -hr*.3, z*hr*.6*sz], [hr*.5*p.cheek, hr*.42*p.cheek, hr*.48*p.cheek]);
+  E(head, M.fur, [hr*.72*sx, -hr*.3, 0], [hr*.24, hr*.2, hr*.36]);                        // 주둥이
+  E(head, M.white, [hr*.8*sx, -hr*.43, 0], [hr*.2, hr*.13, hr*.27]);                      // 흰 턱
+  for (const z of [-1, 1]) E(head, M.white, [hr*.86*sx, -hr*.31, z*hr*.13*p.pad], [hr*.13*p.pad, hr*.11*p.pad, hr*.14*p.pad]); // 흰 콧수염 패드
+  E(head, M.nose, [hr*.98*sx, -hr*.2, 0], [hr*.06, hr*.045, hr*.075]);                    // 검은 코
+
+  // 눈: 머리(타원체) 표면에 붙이고 표면 법선 방향을 바라보게
+  for (const z of [-1, 1]) {
+    const d = new THREE.Vector3(.9, p.eye.height, p.eye.spread*z).normalize();
+    const pos = new THREE.Vector3(d.x*hr*sx, d.y*hr*sy, d.z*hr*sz).multiplyScalar(.97);
+    const n = new THREE.Vector3(pos.x/(sx*sx), pos.y/(sy*sy), pos.z/(sz*sz)).normalize();
+    const eg = new THREE.Group(); eg.position.copy(pos); eg.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), n); head.add(eg);
+    const er = hr * p.eye.r;
+    E(eg, M.iris, [0,0,0], [er, er*1.05, er*.4]);
+    E(eg, M.pupil, [0,0,er*.2], [er*.45, er*.82, er*.3]);
+    E(eg, M.shine, [er*.32*(z > 0 ? -1 : 1), er*.4, er*.42], [er*.22, er*.22, er*.14]);
+  }
+
+  // 귀
+  for (const z of [-1, 1]) {
+    const eg = new THREE.Group();
+    eg.position.set(-hr*.08, hr*.5*sy, z*hr*.62*sz); eg.rotation.set(z*p.ear.tilt, 0, .2); head.add(eg);
+    const { h: eh, r: erad } = p.ear;
+    const m = new THREE.Mesh(new THREE.ConeGeometry(erad, eh, 24), M.fur); m.position.y = eh*.3; m.scale.set(.45, 1, 1); eg.add(m);
+    if (p.innerEar) { const ie = new THREE.Mesh(new THREE.ConeGeometry(erad*.62, eh*.7, 24), M.inner); ie.position.set(erad*.2, eh*.22, 0); ie.scale.set(.25, 1, 1); eg.add(ie); }
+  }
+
+  // 수염
+  const wpts = [], W = hr*p.whisker;
+  for (const z of [-1, 1]) for (let k = 0; k < 3; k++) {
+    const s0 = new THREE.Vector3(hr*.88*sx, -hr*.3, z*hr*.2*p.pad);
+    wpts.push(s0, new THREE.Vector3(s0.x + (k-1)*hr*.2 + hr*.08, s0.y + (k-1)*hr*.1 - hr*.04, z*(hr*.2*p.pad + W)));
+  }
+  head.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(wpts), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: .9 })));
+
+  // 다리: 앞발은 발끝만 흰색, 뒷발은 흰 양말
+  const hipY = cy - b*.35, L = hipY, r = p.legR;
+  for (const [x, z, ph, front] of [[a*.6, 1, 0, true], [a*.6, -1, Math.PI, true], [-a*.6, 1, Math.PI, false], [-a*.6, -1, 0, false]]) {
+    const lg = new THREE.Group(); lg.position.set(x, hipY, z*c*.55); B.add(lg);
+    C(lg, M.fur, r, L - 2*r, [0, -L/2, 0]);
+    if (front) { E(lg, M.fur, [r*.3, -L + r*.9, 0], [r*1.3, r*.8, r*1.1]); E(lg, M.white, [r*1.0, -L + r*.75, 0], [r*.75, r*.6, r*.95]); }
+    else { C(lg, M.white, r*1.05, Math.max(L*.42 - 2*r, .001), [0, -L + L*.21, 0]); E(lg, M.white, [r*.3, -L + r*.9, 0], [r*1.35, r*.85, r*1.15]); }
+    cat.legs.push({ g: lg, ph });
+  }
+
+  cat.tailBase = new THREE.Vector3(-a*.95, cy + b*.2, 0);
+  cat.tailTip = E(B, M.fur, [0,0,0], [p.tailR, p.tailR, p.tailR]);
+  return cat;
+}
+
+function updateTail(cat, t) {
+  const p = cat.p, pts = [];
+  for (let i = 0; i <= 7; i++) {
+    const u = i / 7;
+    pts.push(new THREE.Vector3(cat.tailBase.x - u*p.tailLen*.9, cat.tailBase.y + Math.sin(u*Math.PI*.85)*p.tailLen*p.tailLift,
+      Math.sin(t*2.1 - u*2.6) * u * p.tailLen*.3));
+  }
+  if (cat.tail) { cat.body.remove(cat.tail); cat.tail.geometry.dispose(); }
+  cat.tail = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, p.tailR, 10), cat.M.fur);
+  cat.body.add(cat.tail);
+  cat.tailTip.position.copy(pts[pts.length - 1]);
+}
+
+const SHADOW = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  const g = cv.getContext('2d'), gr = g.createRadialGradient(64,64,0,64,64,64);
+  gr.addColorStop(0,'rgba(0,0,0,0.38)'); gr.addColorStop(.6,'rgba(0,0,0,0.18)'); gr.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0,0,128,128); return new THREE.CanvasTexture(cv);
+})();
+
+let tilt = true, walking = true, walkT = 0;
+function placeCam(v) {
+  const w = v.el.clientWidth, h = v.el.clientHeight;
+  if (!w || !h) return;
+  v.renderer.setSize(w, h, false);
+  const halfH = 1.08, halfW = halfH * w / h;
+  Object.assign(v.cam, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
+  if (tilt) { const ang = 38*Math.PI/180; v.cam.position.set(0, 10*Math.cos(ang), 10*Math.sin(ang)); v.cam.up.set(0,1,0); }
+  else { v.cam.position.set(0, 10, 0); v.cam.up.set(0, 0, -1); }
+  v.cam.lookAt(0, .15, 0);
+  v.cam.updateProjectionMatrix();
+}
+
+const views = [...document.querySelectorAll('.stage')].map((el, idx) => {
+  const p = { ...BASE, ...VARIANTS[+el.dataset.v].p };
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setClearColor(0x000000, 0); renderer.autoClear = false;
+  el.appendChild(renderer.domElement);
+  const scene = new THREE.Scene(), sScene = new THREE.Scene();
+  const phys = p.shade === 'physical';
+  scene.add(new THREE.AmbientLight(0xffffff, phys ? .35 : .9));
+  const dl = new THREE.DirectionalLight(0xffffff, phys ? 3.2 : 2.2); dl.position.set(-2, 6, -2.5); scene.add(dl);
+  if (phys) scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x302820, .8));
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 50);
+  const cat = buildCat(p); scene.add(cat.root);
+  const sh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: SHADOW, transparent: true, depthWrite: false }));
+  sh.rotation.x = -Math.PI/2; sh.scale.set(p.a*2.9 + p.headR*1.4, p.c*3.0, 1); sh.position.x = p.a*.2;
+  const shG = new THREE.Group(); shG.add(sh); sScene.add(shG);
+  const v = { el, renderer, scene, sScene, cam, cat, shG, idx };
+  new ResizeObserver(() => placeCam(v)).observe(el);
+  return v;
+});
+
+const clock = new THREE.Clock();
+function frame() {
+  const dt = Math.min(clock.getDelta(), .05);
+  if (walking) walkT += dt;
+  const t = clock.elapsedTime;
+  for (const v of views) {
+    const c = v.cat;
+    const th = walkT*.32 + v.idx*1.05, R = .2;
+    if (walking) {
+      c.root.position.set(R*Math.cos(th), 0, R*Math.sin(th));
+      c.root.rotation.y = -Math.atan2(Math.cos(th), -Math.sin(th));
+    } else {
+      c.root.position.set(.05, 0, .32);
+      c.root.rotation.y = -Math.PI/2 + .3;   // 화면 쪽을 비스듬히 바라봄
+    }
+    const step = walkT*7;
+    for (const L of c.legs) L.g.rotation.z = walking ? Math.sin(step + L.ph) * .45 : 0;
+    c.body.position.y = walking ? Math.abs(Math.sin(step)) * .01 : 0;
+    c.body.scale.y = 1 + Math.sin(t*2.2) * .012;               // 숨쉬기
+    c.head.rotation.y = Math.sin(t*.7) * .18;
+    updateTail(c, t);
+    v.shG.position.set(c.root.position.x + .04, .001, c.root.position.z + .05);
+    v.shG.rotation.y = c.root.rotation.y;
+    v.renderer.clear(); v.renderer.render(v.sScene, v.cam); v.renderer.clearDepth(); v.renderer.render(v.scene, v.cam);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+function mark(sel, btn) { document.querySelectorAll(sel).forEach(b => b.classList.toggle('on', b === btn)); }
+document.querySelectorAll('[data-bg]').forEach(btn => btn.onclick = () => {
+  document.querySelectorAll('.stage').forEach(s => s.className = 'stage bg-' + btn.dataset.bg); mark('[data-bg]', btn);
+});
+document.querySelectorAll('[data-cam]').forEach(btn => btn.onclick = () => {
+  tilt = btn.dataset.cam === 'tilt'; views.forEach(placeCam); mark('[data-cam]', btn);
+});
+document.querySelectorAll('[data-walk]').forEach(btn => btn.onclick = () => {
+  walking = btn.dataset.walk === '1'; mark('[data-walk]', btn);
+});
+</script>

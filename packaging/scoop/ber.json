@@ -1,0 +1,29 @@
+{
+  "version": "@VERSION@",
+  "description": "화면 위를 돌아다니는 턱시도 고양이 베르",
+  "homepage": "https://github.com/LeeKwang-min/desktop-ber",
+  "license": "@LICENSE@",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/LeeKwang-min/desktop-ber/releases/download/v@VERSION@/Ber-@VERSION@-windows-x64.zip",
+      "hash": "@SHA256@"
+    }
+  },
+  "shortcuts": [["ber.exe", "베르"]],
+  "uninstaller": {
+    "script": [
+      "if ($cmd -eq 'uninstall') {",
+      "    Remove-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name Ber -ErrorAction SilentlyContinue",
+      "    Remove-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run' -Name Ber -ErrorAction SilentlyContinue",
+      "}"
+    ]
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/LeeKwang-min/desktop-ber/releases/download/v$version/Ber-$version-windows-x64.zip"
+      }
+    }
+  }
+}
