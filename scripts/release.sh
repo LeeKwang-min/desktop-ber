@@ -21,7 +21,7 @@ else
   node -e "const fs=require('fs'),f='src-tauri/Cargo.toml'; fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(/^version = \".*\"$/m, 'version = \"$V\"'))"
   (cd src-tauri && cargo update -p ber --offline >/dev/null 2>&1 || true)
   git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-  git commit -m "chore: release v$V"
+  git diff --cached --quiet || git commit -m "chore: release v$V"
   git tag "v$V"
 fi
 git push origin main "v$V"
