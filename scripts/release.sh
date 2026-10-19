@@ -46,6 +46,9 @@ publish() {
   local repo="$1" path="$2"; shift 2
   local dir="$TMP/$repo"
   gh repo clone "$OWNER/$repo" "$dir" -- --depth 1
+  # 임시 클론은 전역 git 설정을 쓰므로 이 레포의 작성자(noreply 주소)를 그대로 넘긴다
+  git -C "$dir" config user.name "$(git config user.name)"
+  git -C "$dir" config user.email "$(git config user.email)"
   mkdir -p "$dir/$(dirname "$path")"
   sed "$@" > "$dir/$path"
   git -C "$dir" add "$path"
