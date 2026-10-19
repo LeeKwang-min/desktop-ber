@@ -13,7 +13,7 @@ cd "$ROOT"
 LICENSE_ID="$(node -p "require('./package.json').license")"
 
 if git rev-parse -q --verify "refs/tags/v$V" >/dev/null; then
-  echo "태그 v$V가 이미 있어 버전 갱신을 건너뜁니다"
+  echo "태그 v${V}가 이미 있어 버전 갱신을 건너뜁니다"
 else
   [ "$(git branch --show-current)" = main ] || { echo "main 브랜치에서 실행하세요" >&2; exit 1; }
   [ -z "$(git status --porcelain)" ] || { echo "커밋하지 않은 변경이 있습니다" >&2; exit 1; }
